@@ -1,0 +1,1 @@
+nvcc main.cu -o raytracer_cuda $(sdl2-config --cflags --libs) -lm

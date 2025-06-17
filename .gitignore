@@ -1,5 +1,8 @@
 *
 !*.*
+*.o
 *.out
 !.gitignore
 !.git/
+!Makefile
+!*/
