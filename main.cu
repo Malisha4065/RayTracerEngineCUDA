@@ -350,9 +350,10 @@ __global__ void render_kernel(Vec3* fb, int width, int height,
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
 
-    if (x >= width || y >= height) return;
+    if (x >= width || y >= height || x < 0 || y < 0) return;
 
     int pixel_index = y * width + x;
+    if (pixel_index >= width * height) return;
     curandState local_rand_state = rand_states[pixel_index]; // Each thread gets its own state
 
     Vec3 pixel_color = vec3_create(0,0,0);
@@ -676,6 +677,14 @@ void cleanup_gpu_data() {
 
 int main(int argc, char* argv[]) {
     srand((unsigned int)time(NULL));
+
+    gpuErrchk(cudaFree(0)); 
+    size_t new_stack_size = 16384; // Example: 16 KB, adjust as needed
+    gpuErrchk(cudaDeviceSetLimit(cudaLimitStackSize, new_stack_size));
+
+    size_t current_stack_size;
+    gpuErrchk(cudaDeviceGetLimit(&current_stack_size, cudaLimitStackSize));
+    printf("CUDA device stack size set to: %zu bytes\n", current_stack_size);
 
     init_engine_scene_and_gpu_data();
 
