@@ -7,6 +7,33 @@
 #include "../include/scene.h"
 #include "../include/cuda_utils.h"
 
+// Helper function to calculate minimum pitch to avoid looking below ground
+float calculate_min_pitch_for_ground_level(float ground_y) {
+    // Calculate camera position based on current pitch/yaw
+    float cam_offset_y = g_distance_to_pivot_host * sinf(g_camera_pitch_host);
+    float camera_y = g_pivot_point_host.y + cam_offset_y;
+    
+    // If camera is at or below ground level, set a safe minimum pitch
+    if (camera_y <= ground_y + 0.1f) {
+        return -0.1f; // Slight downward angle is allowed
+    }
+    
+    // Calculate the angle that would point directly at ground level
+    float height_above_ground = camera_y - ground_y;
+    float horizontal_distance = g_distance_to_pivot_host * cosf(g_camera_pitch_host);
+    
+    // Avoid division by zero
+    if (horizontal_distance < 0.001f) {
+        return -0.1f;
+    }
+    
+    // Calculate minimum pitch angle to barely see ground level
+    float min_pitch = atanf(-height_above_ground / horizontal_distance);
+    
+    // Add some margin to avoid looking exactly at ground level
+    return min_pitch + 0.05f; // 0.05 radians ≈ 3 degrees margin
+}
+
 int main(int argc, char* argv[]) {
     srand((unsigned int)time(NULL));
 
@@ -80,9 +107,14 @@ int main(int argc, char* argv[]) {
                 float sensitivity = 0.0025f;
                 g_camera_yaw_host += (float)e.motion.xrel * sensitivity;
                 g_camera_pitch_host -= (float)e.motion.yrel * sensitivity;
-                const float pitch_limit = (M_PI / 2.0f) - 0.01f;
-                if (g_camera_pitch_host > pitch_limit) g_camera_pitch_host = pitch_limit;
-                if (g_camera_pitch_host < -pitch_limit) g_camera_pitch_host = -pitch_limit;
+                
+                // Apply pitch limits - prevent looking too far up or below ground
+                const float max_pitch_limit = (M_PI / 2.0f) - 0.01f;
+                const float ground_level = 0.0f; // Ground plane is at y=0
+                float min_pitch_limit = calculate_min_pitch_for_ground_level(ground_level);
+                
+                if (g_camera_pitch_host > max_pitch_limit) g_camera_pitch_host = max_pitch_limit;
+                if (g_camera_pitch_host < min_pitch_limit) g_camera_pitch_host = min_pitch_limit;
                 needs_render = 1;
             } else if (e.type == SDL_KEYDOWN) {
                 int key_action_taken = 0;
@@ -128,9 +160,13 @@ int main(int argc, char* argv[]) {
                     case SDLK_MINUS: case SDLK_KP_MINUS: g_distance_to_pivot_host += key_zoom_speed; key_action_taken = 1; break;
                 }
                 if (key_action_taken) {
-                    const float pitch_limit = (M_PI / 2.0f) - 0.01f;
-                    if (g_camera_pitch_host > pitch_limit) g_camera_pitch_host = pitch_limit;
-                    if (g_camera_pitch_host < -pitch_limit) g_camera_pitch_host = -pitch_limit;
+                    // Apply pitch limits - prevent looking too far up or below ground
+                    const float max_pitch_limit = (M_PI / 2.0f) - 0.01f;
+                    const float ground_level = 0.0f; // Ground plane is at y=0
+                    float min_pitch_limit = calculate_min_pitch_for_ground_level(ground_level);
+                    
+                    if (g_camera_pitch_host > max_pitch_limit) g_camera_pitch_host = max_pitch_limit;
+                    if (g_camera_pitch_host < min_pitch_limit) g_camera_pitch_host = min_pitch_limit;
                     g_distance_to_pivot_host = fmaxf(0.5f, g_distance_to_pivot_host);
                     needs_render = 1;
                 }
