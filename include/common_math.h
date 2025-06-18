@@ -5,11 +5,15 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-#define WIDTH 800
-#define HEIGHT 600
+#define DEFAULT_WIDTH 800
+#define DEFAULT_HEIGHT 600
 #define MAX_DEPTH 5
 #define SAMPLES_PER_PIXEL 1
 #define MAX_OBJECTS 10
+
+// Dynamic resolution variables
+extern int g_current_width;
+extern int g_current_height;
 
 #define INFINITY_CUDA FLT_MAX
 

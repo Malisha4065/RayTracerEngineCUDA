@@ -12,6 +12,10 @@ int h_num_spheres = 0;
 CubeData_Device h_cubes_data[MAX_OBJECTS];
 int h_num_cubes = 0;
 
+// Dynamic resolution variables
+int g_current_width = DEFAULT_WIDTH;
+int g_current_height = DEFAULT_HEIGHT;
+
 SphereData_Device* d_spheres_data = NULL;
 CubeData_Device* d_cubes_data = NULL;
 Camera_Device d_camera;
@@ -205,10 +209,10 @@ void init_engine_scene_and_gpu_data() {
         gpuErrchk(cudaMalloc((void**)&d_cubes_data, h_num_cubes * sizeof(CubeData_Device)));
         gpuErrchk(cudaMemcpy(d_cubes_data, h_cubes_data, h_num_cubes * sizeof(CubeData_Device), cudaMemcpyHostToDevice));
     }
-    gpuErrchk(cudaMalloc((void**)&d_pixel_data, WIDTH * HEIGHT * sizeof(Vec3)));
-    gpuErrchk(cudaMalloc((void**)&d_rand_states, WIDTH * HEIGHT * sizeof(curandState)));
+    gpuErrchk(cudaMalloc((void**)&d_pixel_data, g_current_width * g_current_height * sizeof(Vec3)));
+    gpuErrchk(cudaMalloc((void**)&d_rand_states, g_current_width * g_current_height * sizeof(curandState)));
 
-    int num_rand_states = WIDTH * HEIGHT;
+    int num_rand_states = g_current_width * g_current_height;
     dim3 threadsPerBlockRand(256);
     dim3 numBlocksRand((num_rand_states + threadsPerBlockRand.x - 1) / threadsPerBlockRand.x);
     init_random_states_kernel<<<numBlocksRand, threadsPerBlockRand>>>(d_rand_states, num_rand_states, (unsigned long long)time(NULL));
@@ -216,31 +220,36 @@ void init_engine_scene_and_gpu_data() {
     gpuErrchk(cudaDeviceSynchronize());
 }
 
-void render_frame_cuda(SDL_Renderer *renderer, SDL_Texture *texture) {
-    camera_init_host(&d_camera, g_camera_pos_host, g_camera_lookat_host, g_camera_vup_host, g_fov_y_degrees_host, (float)WIDTH / HEIGHT);
+void render_frame_cuda(SDL_Renderer *renderer, SDL_Texture *texture, int width, int height) {
+    // Update resolution if it changed
+    if (width != g_current_width || height != g_current_height) {
+        resize_gpu_buffers(width, height);
+    }
+    
+    camera_init_host(&d_camera, g_camera_pos_host, g_camera_lookat_host, g_camera_vup_host, g_fov_y_degrees_host, (float)g_current_width / g_current_height);
 
     dim3 threadsPerBlock(16, 16);
-    dim3 numBlocks((WIDTH + threadsPerBlock.x - 1) / threadsPerBlock.x,
-                   (HEIGHT + threadsPerBlock.y - 1) / threadsPerBlock.y);
+    dim3 numBlocks((g_current_width + threadsPerBlock.x - 1) / threadsPerBlock.x,
+                   (g_current_height + threadsPerBlock.y - 1) / threadsPerBlock.y);
 
-    render_kernel<<<numBlocks, threadsPerBlock>>>(d_pixel_data, WIDTH, HEIGHT, d_camera,
+    render_kernel<<<numBlocks, threadsPerBlock>>>(d_pixel_data, g_current_width, g_current_height, d_camera,
                                                  d_spheres_data, h_num_spheres,
                                                  d_cubes_data, h_num_cubes,
                                                  d_rand_states);
     gpuErrchk(cudaPeekAtLastError());
     gpuErrchk(cudaDeviceSynchronize());
 
-    Vec3* h_pixels = (Vec3*)malloc(WIDTH * HEIGHT * sizeof(Vec3));
-    gpuErrchk(cudaMemcpy(h_pixels, d_pixel_data, WIDTH * HEIGHT * sizeof(Vec3), cudaMemcpyDeviceToHost));
+    Vec3* h_pixels = (Vec3*)malloc(g_current_width * g_current_height * sizeof(Vec3));
+    gpuErrchk(cudaMemcpy(h_pixels, d_pixel_data, g_current_width * g_current_height * sizeof(Vec3), cudaMemcpyDeviceToHost));
 
     void *sdl_pixels_locked;
     int pitch;
     SDL_LockTexture(texture, NULL, &sdl_pixels_locked, &pitch);
     unsigned char *pixel_data_sdl = (unsigned char *)sdl_pixels_locked;
 
-    for (int y = 0; y < HEIGHT; y++) {
-        for (int x = 0; x < WIDTH; x++) {
-            Vec3 p_color = h_pixels[y * WIDTH + x];
+    for (int y = 0; y < g_current_height; y++) {
+        for (int x = 0; x < g_current_width; x++) {
+            Vec3 p_color = h_pixels[y * g_current_width + x];
             int ir = (int)(255.999f * fminf(1.0f, fmaxf(0.0f, p_color.x)));
             int ig = (int)(255.999f * fminf(1.0f, fmaxf(0.0f, p_color.y)));
             int ib = (int)(255.999f * fminf(1.0f, fmaxf(0.0f, p_color.z)));
@@ -256,6 +265,30 @@ void render_frame_cuda(SDL_Renderer *renderer, SDL_Texture *texture) {
     SDL_UnlockTexture(texture);
     SDL_RenderCopy(renderer, texture, NULL, NULL);
     SDL_RenderPresent(renderer);
+}
+
+void resize_gpu_buffers(int new_width, int new_height) {
+    printf("Resizing GPU buffers from %dx%d to %dx%d\n", g_current_width, g_current_height, new_width, new_height);
+    
+    // Free old buffers
+    if (d_pixel_data) gpuErrchk(cudaFree(d_pixel_data));
+    if (d_rand_states) gpuErrchk(cudaFree(d_rand_states));
+    
+    // Update resolution
+    g_current_width = new_width;
+    g_current_height = new_height;
+    
+    // Allocate new buffers
+    gpuErrchk(cudaMalloc((void**)&d_pixel_data, g_current_width * g_current_height * sizeof(Vec3)));
+    gpuErrchk(cudaMalloc((void**)&d_rand_states, g_current_width * g_current_height * sizeof(curandState)));
+
+    // Reinitialize random states
+    int num_rand_states = g_current_width * g_current_height;
+    dim3 threadsPerBlockRand(256);
+    dim3 numBlocksRand((num_rand_states + threadsPerBlockRand.x - 1) / threadsPerBlockRand.x);
+    init_random_states_kernel<<<numBlocksRand, threadsPerBlockRand>>>(d_rand_states, num_rand_states, (unsigned long long)time(NULL));
+    gpuErrchk(cudaPeekAtLastError());
+    gpuErrchk(cudaDeviceSynchronize());
 }
 
 void cleanup_gpu_data() {

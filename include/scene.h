@@ -9,8 +9,9 @@
 void add_sphere_to_scene_host(Vec3 center, float radius, Material_Device mat);
 void add_cube_to_scene_host(Vec3 center, Vec3 size, Material_Device mat);
 void init_engine_scene_and_gpu_data();
-void render_frame_cuda(SDL_Renderer *renderer, SDL_Texture *texture);
+void render_frame_cuda(SDL_Renderer *renderer, SDL_Texture *texture, int width, int height);
 void cleanup_gpu_data();
+void resize_gpu_buffers(int new_width, int new_height);
 
 // Host-side random for scene generation
 float host_random_float();
