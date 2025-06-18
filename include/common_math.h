@@ -9,7 +9,7 @@
 #define DEFAULT_HEIGHT 600
 #define MAX_DEPTH 5
 #define SAMPLES_PER_PIXEL 1
-#define MAX_OBJECTS 10
+#define MAX_OBJECTS 50
 
 // Dynamic resolution variables
 extern int g_current_width;

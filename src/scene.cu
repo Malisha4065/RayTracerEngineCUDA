@@ -117,7 +117,7 @@ void init_engine_scene_and_gpu_data() {
     int scene_choice;
     printf("Select a scene to render:\n");
     printf("  1: Custom scene with user-defined objects\n");
-    printf("  2: Pre-defined natural scene (tree and ground)\n");
+    printf("  2: Pre-defined natural scene (multiple trees and ground)\n");
     printf("Enter your choice (1 or 2): ");
     scanf("%d", &scene_choice);
     int c;
@@ -126,28 +126,87 @@ void init_engine_scene_and_gpu_data() {
     if (scene_choice == 2) {
         printf("Loading pre-defined natural scene...\n");
 
+        // Ask for number of trees
+        int num_trees;
+        printf("Enter the number of trees to place in the scene (1 to 15): ");
+        scanf("%d", &num_trees);
+        while ((c = getchar()) != '\n' && c != EOF);
+        
+        if (num_trees < 1) num_trees = 1;
+        if (num_trees > 15) {
+            printf("Warning: Too many trees requested. Limiting to 15 trees to stay within object limits.\n");
+            num_trees = 15;
+        }
+
         // Ground - a large sphere
         Material_Device ground_mat = material_lambertian_create_host(vec3_create(0.5f, 0.5f, 0.2f));
         add_sphere_to_scene_host(vec3_create(0.0f, -1000.0f, -1.0f), 1000.0f, ground_mat);
 
-        // Tree Trunk - a cube
+        // Create materials for trees
         Material_Device trunk_mat = material_lambertian_create_host(vec3_create(0.4f, 0.2f, 0.1f));
-        add_cube_to_scene_host(vec3_create(0.0f, 0.25f, -3.0f), vec3_create(0.2f, 1.5f, 0.2f), trunk_mat);
+        Material_Device canopy_mat = material_lambertian_create_host(vec3_create(0.1f, 0.5f, 0.1f));
 
-        // Tree Canopy - a few spheres
-        Material_Device canopy_mat1 = material_lambertian_create_host(vec3_create(0.1f, 0.5f, 0.1f));
-        add_sphere_to_scene_host(vec3_create(0.0f, 1.2f, -3.0f), 0.8f, canopy_mat1);
-        add_sphere_to_scene_host(vec3_create(0.4f, 1.0f, -2.7f), 0.6f, canopy_mat1);
-        add_sphere_to_scene_host(vec3_create(-0.3f, 0.9f, -3.3f), 0.7f, canopy_mat1);
-
-        // Light source
+        // Light source (sun) - Add this FIRST to guarantee it's always present
         Material_Device light_mat = material_emissive_create_host(vec3_scale(vec3_create(1.0f, 1.0f, 1.0f), 3.0f));
         Vec3 light_pos = vec3_create(3.0f, 3.0f, -1.0f);
         add_sphere_to_scene_host(light_pos, 0.5f, light_mat);
+        printf("    -> Created Sun/Light source at position (%.2f, %.2f, %.2f)\n", light_pos.x, light_pos.y, light_pos.z);
 
-        g_pivot_point_host = vec3_create(0.0f, 0.25f, -3.0f);
+        // Calculate max objects we can use for trees (reserve 1 for ground, 1 for light already added)
+        int max_objects_for_trees = MAX_OBJECTS - 2; // Ground + Light already accounted for
+        int estimated_objects_per_tree = 3; // 1 trunk + 2 canopy spheres minimum
+        int safe_num_trees = (max_objects_for_trees) / estimated_objects_per_tree;
+        
+        if (num_trees > safe_num_trees) {
+            printf("Warning: Adjusting number of trees from %d to %d to ensure all trees have complete canopies.\n", 
+                   num_trees, safe_num_trees);
+            num_trees = safe_num_trees;
+        }
+
+        // Generate trees at random positions
+        Vec3 first_tree_pos = vec3_create(0, 0, 0); // Will store the first tree position for camera pivot
+        for (int tree_idx = 0; tree_idx < num_trees; tree_idx++) {
+            // Generate random position for tree (spread them out on the ground)
+            float x_pos = host_random_float_range(-8.0f, 8.0f);
+            float z_pos = host_random_float_range(-8.0f, -2.0f); // Keep trees in front of camera
+            Vec3 tree_base_pos = vec3_create(x_pos, 0.25f, z_pos);
+            
+            if (tree_idx == 0) {
+                first_tree_pos = tree_base_pos; // Remember first tree for pivot
+            }
+
+            // Tree Trunk - a cube
+            add_cube_to_scene_host(tree_base_pos, vec3_create(0.2f, 1.5f, 0.2f), trunk_mat);
+
+            // Tree Canopy - multiple spheres for each tree
+            Vec3 canopy_center = vec3_create(tree_base_pos.x, tree_base_pos.y + 0.95f, tree_base_pos.z);
+            
+            // Main canopy sphere - ALWAYS add this for every tree
+            add_sphere_to_scene_host(canopy_center, 0.8f, canopy_mat);
+            
+            // Additional canopy spheres for fuller appearance (only if we have room)
+            if (h_num_spheres + h_num_cubes < MAX_OBJECTS - 1) {
+                Vec3 canopy_offset1 = vec3_create(canopy_center.x + host_random_float_range(-0.4f, 0.4f), 
+                                                 canopy_center.y + host_random_float_range(-0.2f, 0.2f), 
+                                                 canopy_center.z + host_random_float_range(-0.3f, 0.3f));
+                add_sphere_to_scene_host(canopy_offset1, host_random_float_range(0.5f, 0.7f), canopy_mat);
+            }
+            
+            if (h_num_spheres + h_num_cubes < MAX_OBJECTS) {
+                Vec3 canopy_offset2 = vec3_create(canopy_center.x + host_random_float_range(-0.3f, 0.3f), 
+                                                 canopy_center.y + host_random_float_range(-0.1f, 0.3f), 
+                                                 canopy_center.z + host_random_float_range(-0.4f, 0.4f));
+                add_sphere_to_scene_host(canopy_offset2, host_random_float_range(0.6f, 0.8f), canopy_mat);
+            }
+
+            printf("    -> Created Tree %d at position (%.2f, %.2f, %.2f)\n", 
+                   tree_idx + 1, tree_base_pos.x, tree_base_pos.y, tree_base_pos.z);
+        }
+
+        // Set camera pivot to the first tree
+        g_pivot_point_host = first_tree_pos;
         pivot_set_by_light = true; // Using this to signal pivot is intentionally set
-        printf("    -> The Tree will be the pivot point for camera rotation.\n");
+        printf("    -> Camera will pivot around the first tree for rotation.\n");
 
     } else {
         int num_total_objects;
