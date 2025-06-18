@@ -114,75 +114,111 @@ void init_engine_scene_and_gpu_data() {
     g_pivot_point_host = vec3_create(0.0f, 0.0f, -4.0f); 
     bool pivot_set_by_light = false;
 
-    int num_total_objects;
-    printf("Enter the total number of objects for the scene (0 to %d): ", MAX_OBJECTS);
-    scanf("%d", &num_total_objects);
+    int scene_choice;
+    printf("Select a scene to render:\n");
+    printf("  1: Custom scene with user-defined objects\n");
+    printf("  2: Pre-defined natural scene (tree and ground)\n");
+    printf("Enter your choice (1 or 2): ");
+    scanf("%d", &scene_choice);
     int c;
     while ((c = getchar()) != '\n' && c != EOF);
 
-    if (num_total_objects < 0) num_total_objects = 0;
-    if (num_total_objects > MAX_OBJECTS) {
-        printf("Warning: Number of objects exceeds MAX_OBJECTS (%d). Clamping to MAX_OBJECTS.\n", MAX_OBJECTS);
-        num_total_objects = MAX_OBJECTS;
-    }
-    
-    for (int i = 0; i < num_total_objects; ++i) {
-        printf("\nConfiguring Object %d of %d:\n", i + 1, num_total_objects);
-        int shape_type_choice;
-        printf("  Select shape type (1: Sphere, 2: Cube): ");
-        scanf("%d", &shape_type_choice);
+    if (scene_choice == 2) {
+        printf("Loading pre-defined natural scene...\n");
+
+        // Ground - a large sphere
+        Material_Device ground_mat = material_lambertian_create_host(vec3_create(0.5f, 0.5f, 0.2f));
+        add_sphere_to_scene_host(vec3_create(0.0f, -1000.0f, -1.0f), 1000.0f, ground_mat);
+
+        // Tree Trunk - a cube
+        Material_Device trunk_mat = material_lambertian_create_host(vec3_create(0.4f, 0.2f, 0.1f));
+        add_cube_to_scene_host(vec3_create(0.0f, 0.25f, -3.0f), vec3_create(0.2f, 1.5f, 0.2f), trunk_mat);
+
+        // Tree Canopy - a few spheres
+        Material_Device canopy_mat1 = material_lambertian_create_host(vec3_create(0.1f, 0.5f, 0.1f));
+        add_sphere_to_scene_host(vec3_create(0.0f, 1.2f, -3.0f), 0.8f, canopy_mat1);
+        add_sphere_to_scene_host(vec3_create(0.4f, 1.0f, -2.7f), 0.6f, canopy_mat1);
+        add_sphere_to_scene_host(vec3_create(-0.3f, 0.9f, -3.3f), 0.7f, canopy_mat1);
+
+        // Light source
+        Material_Device light_mat = material_emissive_create_host(vec3_scale(vec3_create(1.0f, 1.0f, 1.0f), 3.0f));
+        Vec3 light_pos = vec3_create(3.0f, 3.0f, -1.0f);
+        add_sphere_to_scene_host(light_pos, 0.5f, light_mat);
+
+        g_pivot_point_host = vec3_create(0.0f, 0.25f, -3.0f);
+        pivot_set_by_light = true; // Using this to signal pivot is intentionally set
+        printf("    -> The Tree will be the pivot point for camera rotation.\n");
+
+    } else {
+        int num_total_objects;
+        printf("Enter the total number of objects for the scene (0 to %d): ", MAX_OBJECTS);
+        scanf("%d", &num_total_objects);
         while ((c = getchar()) != '\n' && c != EOF);
 
-        Vec3 center;
-        Material_Device mat;
-        int mat_type_choice;
+        if (num_total_objects < 0) num_total_objects = 0;
+        if (num_total_objects > MAX_OBJECTS) {
+            printf("Warning: Number of objects exceeds MAX_OBJECTS (%d). Clamping to MAX_OBJECTS.\n", MAX_OBJECTS);
+            num_total_objects = MAX_OBJECTS;
+        }
+        
+        for (int i = 0; i < num_total_objects; ++i) {
+            printf("\nConfiguring Object %d of %d:\n", i + 1, num_total_objects);
+            int shape_type_choice;
+            printf("  Select shape type (1: Sphere, 2: Cube): ");
+            scanf("%d", &shape_type_choice);
+            while ((c = getchar()) != '\n' && c != EOF);
 
-        printf("  Select material type for object %d (1: Diffuse, 2: Metal, 3: Light): ", i + 1);
-        scanf("%d", &mat_type_choice);
-        while ((c = getchar()) != '\n' && c != EOF);
+            Vec3 center;
+            Material_Device mat;
+            int mat_type_choice;
 
-        Vec3 random_color_val = vec3_create(host_random_float(), host_random_float(), host_random_float());
-        random_color_val.x = fmaxf(0.1f, random_color_val.x);
-        random_color_val.y = fmaxf(0.1f, random_color_val.y);
-        random_color_val.z = fmaxf(0.1f, random_color_val.z);
+            printf("  Select material type for object %d (1: Diffuse, 2: Metal, 3: Light): ", i + 1);
+            scanf("%d", &mat_type_choice);
+            while ((c = getchar()) != '\n' && c != EOF);
 
-        switch (mat_type_choice) {
-            case 1: mat = material_lambertian_create_host(random_color_val); break;
-            case 2: mat = material_metal_create_host(random_color_val, host_random_float_range(0.0f, 0.4f)); break;
-            case 3: {
-                Vec3 emission_color = vec3_scale(random_color_val, host_random_float_range(1.5f, 4.0f));
-                mat = material_emissive_create_host(emission_color);
-                break;
+            Vec3 random_color_val = vec3_create(host_random_float(), host_random_float(), host_random_float());
+            random_color_val.x = fmaxf(0.1f, random_color_val.x);
+            random_color_val.y = fmaxf(0.1f, random_color_val.y);
+            random_color_val.z = fmaxf(0.1f, random_color_val.z);
+
+            switch (mat_type_choice) {
+                case 1: mat = material_lambertian_create_host(random_color_val); break;
+                case 2: mat = material_metal_create_host(random_color_val, host_random_float_range(0.0f, 0.4f)); break;
+                case 3: {
+                    Vec3 emission_color = vec3_scale(random_color_val, host_random_float_range(1.5f, 4.0f));
+                    mat = material_emissive_create_host(emission_color);
+                    break;
+                }
+                default:
+                    printf("    Invalid material choice. Defaulting to Lambertian grey.\n");
+                    mat = material_lambertian_create_host(vec3_create(0.5f, 0.5f, 0.5f));
+                    break;
             }
-            default:
-                printf("    Invalid material choice. Defaulting to Lambertian grey.\n");
-                mat = material_lambertian_create_host(vec3_create(0.5f, 0.5f, 0.5f));
-                break;
-        }
 
-        float grid_spacing = 2.0f;
-        int items_per_row = 3; 
-        float x_pos = (i % items_per_row - (items_per_row -1) / 2.0f) * grid_spacing + host_random_float_range(-0.3f, 0.3f);
-        float y_pos = host_random_float_range(-1.0f, 1.0f); 
-        float z_pos = -5.0f - (i / items_per_row) * grid_spacing + host_random_float_range(-0.5f, 0.5f);
-        center = vec3_create(x_pos, y_pos, z_pos);
+            float grid_spacing = 2.0f;
+            int items_per_row = 3; 
+            float x_pos = (i % items_per_row - (items_per_row -1) / 2.0f) * grid_spacing + host_random_float_range(-0.3f, 0.3f);
+            float y_pos = host_random_float_range(-1.0f, 1.0f); 
+            float z_pos = -5.0f - (i / items_per_row) * grid_spacing + host_random_float_range(-0.5f, 0.5f);
+            center = vec3_create(x_pos, y_pos, z_pos);
 
-        if (shape_type_choice == 1) {
-            float radius = host_random_float_range(0.3f, 0.7f);
-            add_sphere_to_scene_host(center, radius, mat);
-            printf("    -> Created Sphere at (%.2f, %.2f, %.2f), radius %.2f\n", center.x, center.y, center.z, radius);
-        } else if (shape_type_choice == 2) {
-            Vec3 size = vec3_create(host_random_float_range(0.5f, 1.2f), host_random_float_range(0.5f, 1.2f), host_random_float_range(0.5f, 1.2f));
-            add_cube_to_scene_host(center, size, mat);
-            printf("    -> Created Cube centered at (%.2f, %.2f, %.2f) with size (%.2f, %.2f, %.2f)\n", center.x, center.y, center.z, size.x, size.y, size.z);
-        } else {
-            printf("    Invalid shape choice. Skipping object.\n");
-            continue;
-        }
-        if (mat_type_choice == 3 && !pivot_set_by_light) {
-            g_pivot_point_host = center;
-            pivot_set_by_light = true;
-            printf("    -> This Light Source object will be the pivot point.\n");
+            if (shape_type_choice == 1) {
+                float radius = host_random_float_range(0.3f, 0.7f);
+                add_sphere_to_scene_host(center, radius, mat);
+                printf("    -> Created Sphere at (%.2f, %.2f, %.2f), radius %.2f\n", center.x, center.y, center.z, radius);
+            } else if (shape_type_choice == 2) {
+                Vec3 size = vec3_create(host_random_float_range(0.5f, 1.2f), host_random_float_range(0.5f, 1.2f), host_random_float_range(0.5f, 1.2f));
+                add_cube_to_scene_host(center, size, mat);
+                printf("    -> Created Cube centered at (%.2f, %.2f, %.2f) with size (%.2f, %.2f, %.2f)\n", center.x, center.y, center.z, size.x, size.y, size.z);
+            } else {
+                printf("    Invalid shape choice. Skipping object.\n");
+                continue;
+            }
+            if (mat_type_choice == 3 && !pivot_set_by_light) {
+                g_pivot_point_host = center;
+                pivot_set_by_light = true;
+                printf("    -> This Light Source object will be the pivot point.\n");
+            }
         }
     }
     
