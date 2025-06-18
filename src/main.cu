@@ -9,28 +9,30 @@
 
 // Helper function to calculate minimum pitch to avoid looking below ground
 float calculate_min_pitch_for_ground_level(float ground_y) {
-    // Calculate camera position based on current pitch/yaw
-    float cam_offset_y = g_distance_to_pivot_host * sinf(g_camera_pitch_host);
-    float camera_y = g_pivot_point_host.y + cam_offset_y;
-    
-    // If camera is at or below ground level, set a safe minimum pitch
-    if (camera_y <= ground_y + 0.1f) {
-        return -0.1f; // Slight downward angle is allowed
+    // This function calculates the minimum pitch required to keep the camera
+    // from physically going below the ground plane. This approach is more stable
+    // than the previous implementation because it doesn't depend on the current
+    // pitch to calculate its own limit.
+
+    float dy = ground_y - g_pivot_point_host.y;
+    float asin_arg = dy / g_distance_to_pivot_host;
+
+    // If the pivot is very high above the ground (relative to the camera's
+    // distance), the camera sphere will always be above ground.
+    if (asin_arg < -1.0f) {
+        return -M_PI_2 + 0.01f; // No real limit, allow looking straight down.
     }
-    
-    // Calculate the angle that would point directly at ground level
-    float height_above_ground = camera_y - ground_y;
-    float horizontal_distance = g_distance_to_pivot_host * cosf(g_camera_pitch_host);
-    
-    // Avoid division by zero
-    if (horizontal_distance < 0.001f) {
-        return -0.1f;
+
+    // If the pivot is very far below the ground, the camera sphere may always
+    // be below ground.
+    if (asin_arg > 1.0f) {
+        return M_PI_2; // Should not be able to look down at all.
     }
-    
-    // Calculate minimum pitch angle to barely see ground level
-    float min_pitch = atanf(-height_above_ground / horizontal_distance);
-    
-    // Add some margin to avoid looking exactly at ground level
+
+    // Calculate the pitch angle where the camera would touch the ground.
+    float min_pitch = asinf(asin_arg);
+
+    // Add a small margin to ensure the camera stays slightly above the ground.
     return min_pitch + 0.05f; // 0.05 radians ≈ 3 degrees margin
 }
 
