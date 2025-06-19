@@ -203,6 +203,59 @@ void init_engine_scene_and_gpu_data() {
                    tree_idx + 1, tree_base_pos.x, tree_base_pos.y, tree_base_pos.z);
         }
 
+        // Generate logs on the ground
+        int num_logs = (int)(host_random_float_range(0.5f, 1.5f) * num_trees);
+        if (num_logs < 1 && num_trees > 0) num_logs = 1;
+        printf("    -> Generating %d logs.\n", num_logs);
+
+        Material_Device log_mat = material_lambertian_create_host(vec3_create(0.3f, 0.15f, 0.05f));
+        for (int i = 0; i < num_logs; i++) {
+            if (h_num_spheres + h_num_cubes >= MAX_OBJECTS) {
+                printf("Warning: MAX_OBJECTS reached, cannot add more logs.\n");
+                break;
+            }
+            float x_pos = host_random_float_range(-8.0f, 8.0f);
+            float z_pos = host_random_float_range(-8.0f, -2.0f);
+            Vec3 log_pos = vec3_create(x_pos, 0.1f, z_pos);
+            float log_length = host_random_float_range(1.0f, 2.5f);
+            float log_width = host_random_float_range(0.2f, 0.4f);
+            Vec3 log_size = vec3_create(log_length, log_width, log_width);
+            
+            if (host_random_float() > 0.5f) {
+                log_size = vec3_create(log_width, log_width, log_length);
+            }
+
+            add_cube_to_scene_host(log_pos, log_size, log_mat);
+        }
+
+        // Generate rocks on the ground
+        int num_rocks = num_trees;
+        printf("    -> Generating %d rocks.\n", num_rocks);
+        Material_Device rock_mat = material_lambertian_create_host(vec3_create(0.4f, 0.4f, 0.4f));
+
+        for (int i = 0; i < num_rocks; i++) {
+            if (h_num_spheres + h_num_cubes >= MAX_OBJECTS - 3) { 
+                printf("Warning: MAX_OBJECTS reached, cannot add more rocks.\n");
+                break;
+            }
+            float x_pos = host_random_float_range(-8.0f, 8.0f);
+            float z_pos = host_random_float_range(-8.0f, -2.0f);
+            Vec3 rock_base_pos = vec3_create(x_pos, 0.0f, z_pos);
+
+            int spheres_per_rock = (int)host_random_float_range(2.0f, 5.0f);
+            for (int j = 0; j < spheres_per_rock; j++) {
+                if (h_num_spheres + h_num_cubes >= MAX_OBJECTS) {
+                    break;
+                }
+                float offset_x = host_random_float_range(-0.2f, 0.2f);
+                float offset_y = host_random_float_range(-0.1f, 0.1f);
+                float offset_z = host_random_float_range(-0.2f, 0.2f);
+                float radius = host_random_float_range(0.1f, 0.3f);
+                Vec3 sphere_pos = vec3_add(rock_base_pos, vec3_create(offset_x, offset_y, offset_z));
+                add_sphere_to_scene_host(sphere_pos, radius, rock_mat);
+            }
+        }
+
         // Set camera pivot to the first tree
         g_pivot_point_host = first_tree_pos;
         pivot_set_by_light = true; // Using this to signal pivot is intentionally set
