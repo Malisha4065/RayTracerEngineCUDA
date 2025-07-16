@@ -55,15 +55,39 @@ SimpleHit intersect_sphere_cpu(const SimpleRay& ray, Vec3 center, float radius) 
 }
 
 // Simple CPU ray color calculation
-Vec3 ray_color_cpu_simple(const SimpleRay& ray) {
-    // Simple scene with one sphere
-    SimpleHit hit = intersect_sphere_cpu(ray, vec3_create(0, 0, -1), 0.5f);
+Vec3 ray_color_cpu_simple(const SimpleRay& ray, const SphereData_Device* spheres, int num_spheres) {
+    SimpleHit closest_hit;
+    closest_hit.hit = false;
+    closest_hit.t = INFINITY;
+
+    // Find the closest intersection among all spheres
+    for (int i = 0; i < num_spheres; i++) {
+        SimpleHit hit = intersect_sphere_cpu(ray, spheres[i].center, spheres[i].radius);
+        if (hit.hit && hit.t < closest_hit.t) {
+            closest_hit = hit;
+            // We can't easily replicate the material logic on CPU without more info,
+            // so we'll just use the albedo for color.
+        }
+    }
     
-    if (hit.hit) {
-        // Simple diffuse shading
+    if (closest_hit.hit) {
+        // Simple diffuse shading using the sphere's albedo
         Vec3 light_dir = vec3_normalize(vec3_create(1, 1, 1));
-        float dot_product = fmaxf(0.0f, vec3_dot(hit.normal, light_dir));
-        return vec3_scale(vec3_create(0.7f, 0.3f, 0.3f), dot_product);
+        float dot_product = fmaxf(0.0f, vec3_dot(closest_hit.normal, light_dir));
+        
+        // Find the material color of the hit sphere
+        Vec3 albedo = vec3_create(0.5f, 0.5f, 0.5f); // Default color
+        for (int i = 0; i < num_spheres; i++) {
+            // This is a simplification. We assume the hit sphere is the one we are checking.
+            // A better approach would be to store an object ID in the SimpleHit struct.
+            if (vec3_length(vec3_sub(closest_hit.point, vec3_add(spheres[i].center, vec3_scale(vec3_normalize(vec3_sub(closest_hit.point, spheres[i].center)), spheres[i].radius*1.001f)))) < 0.001f)
+            {
+                 albedo = spheres[i].material.albedo;
+                 break;
+            }
+        }
+
+        return vec3_scale(albedo, dot_product);
     }
     
     // Background gradient
@@ -75,7 +99,7 @@ Vec3 ray_color_cpu_simple(const SimpleRay& ray) {
 }
 
 // CPU renderer - renders a simple test scene for comparison
-void render_cpu_simple(Vec3* output, int width, int height) {
+void render_cpu_simple(Vec3* output, int width, int height, const SphereData_Device* spheres, int num_spheres) {
     // Simple camera setup that matches a simple scene
     Vec3 camera_pos = vec3_create(0, 0, 0);
     Vec3 lower_left = vec3_create(-2, -1, -1);
@@ -94,7 +118,7 @@ void render_cpu_simple(Vec3* output, int width, int height) {
                                                              vec3_scale(vertical, v)), 
                                                     camera_pos));
             
-            output[y * width + x] = ray_color_cpu_simple(ray);
+            output[y * width + x] = ray_color_cpu_simple(ray, spheres, num_spheres);
         }
     }
 }
@@ -150,11 +174,22 @@ void run_performance_test(int threads_x, int threads_y, FILE* csv_file) {
     cam.horizontal = vec3_create(4, 0, 0);
     cam.vertical = vec3_create(0, 2, 0);
     
+    // Create simple test scene matching CPU renderer
+    SphereData_Device* d_simple_spheres;
+    gpuErrchk(cudaMalloc(&d_simple_spheres, sizeof(SphereData_Device)));
+    
+    SphereData_Device simple_sphere;
+    simple_sphere.center = vec3_create(0, 0, -1);
+    simple_sphere.radius = 0.5f;
+    simple_sphere.material = material_lambertian_create_host(vec3_create(0.7f, 0.3f, 0.3f));
+    
+    gpuErrchk(cudaMemcpy(d_simple_spheres, &simple_sphere, sizeof(SphereData_Device), cudaMemcpyHostToDevice));
+
     // CPU timing
     double cpu_total_time = 0.0;
     for (int i = 0; i < NUM_ITERATIONS; i++) {
         auto cpu_start = std::chrono::high_resolution_clock::now();
-        render_cpu_simple(cpu_result, TEST_WIDTH, TEST_HEIGHT);
+        render_cpu_simple(cpu_result, TEST_WIDTH, TEST_HEIGHT, &simple_sphere, 1);
         auto cpu_end = std::chrono::high_resolution_clock::now();
         
         double cpu_time = std::chrono::duration<double, std::milli>(cpu_end - cpu_start).count();
@@ -172,16 +207,6 @@ void run_performance_test(int threads_x, int threads_y, FILE* csv_file) {
     cudaEventCreate(&stop);
     
     float gpu_total_time = 0.0f;
-    // Create simple test scene matching CPU renderer
-    SphereData_Device* d_simple_spheres;
-    gpuErrchk(cudaMalloc(&d_simple_spheres, sizeof(SphereData_Device)));
-    
-    SphereData_Device simple_sphere;
-    simple_sphere.center = vec3_create(0, 0, -1);
-    simple_sphere.radius = 0.5f;
-    simple_sphere.material = material_lambertian_create_host(vec3_create(0.7f, 0.3f, 0.3f));
-    
-    gpuErrchk(cudaMemcpy(d_simple_spheres, &simple_sphere, sizeof(SphereData_Device), cudaMemcpyHostToDevice));
     
     for (int i = 0; i < NUM_ITERATIONS; i++) {
         cudaEventRecord(start);
