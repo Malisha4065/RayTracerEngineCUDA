@@ -1,0 +1,50 @@
+# Makefile for performance analysis
+NVCC = nvcc
+SRCDIR = src
+INCDIR = include
+OBJDIR = obj
+BINDIR = bin
+
+# Performance analysis target
+PERF_TARGET = $(BINDIR)/performance_analysis
+
+# Source files
+PERF_SOURCES = performance_analysis.cu $(SRCDIR)/scene.cu $(SRCDIR)/kernels.cu
+PERF_OBJECTS = $(OBJDIR)/performance_analysis.o $(OBJDIR)/scene.o $(OBJDIR)/kernels.o
+
+# Compiler flags
+NVCC_FLAGS = -std=c++11 -O3 -arch=sm_50
+INCLUDES = -I$(INCDIR)
+LIBS = -lSDL2 -lcurand -lm
+
+# Create directories
+$(shell mkdir -p $(OBJDIR) $(BINDIR))
+
+# Main target
+perf: $(PERF_TARGET)
+
+# Link executable
+$(PERF_TARGET): $(PERF_OBJECTS)
+	$(NVCC) $(PERF_OBJECTS) -o $@ $(LIBS)
+
+# Compile performance analysis
+$(OBJDIR)/performance_analysis.o: performance_analysis.cu
+	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) -c $< -o $@
+
+# Compile scene (if not already compiled)
+$(OBJDIR)/scene.o: $(SRCDIR)/scene.cu
+	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) -c $< -o $@
+
+# Compile kernels (if not already compiled)
+$(OBJDIR)/kernels.o: $(SRCDIR)/kernels.cu
+	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) -c $< -o $@
+
+# Clean
+clean-perf:
+	rm -f $(OBJDIR)/performance_analysis.o $(PERF_TARGET)
+
+# Run analysis
+run-perf: $(PERF_TARGET)
+	./$(PERF_TARGET)
+
+.PHONY: perf clean-perf run-perf
