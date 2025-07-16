@@ -74,9 +74,9 @@ Vec3 ray_color_cpu_simple(const SimpleRay& ray) {
     return vec3_add(vec3_scale(white, 1.0f - t), vec3_scale(blue, t));
 }
 
-// CPU renderer
+// CPU renderer - renders a simple test scene for comparison
 void render_cpu_simple(Vec3* output, int width, int height) {
-    // Simple camera setup
+    // Simple camera setup that matches a simple scene
     Vec3 camera_pos = vec3_create(0, 0, 0);
     Vec3 lower_left = vec3_create(-2, -1, -1);
     Vec3 horizontal = vec3_create(4, 0, 0);
@@ -172,12 +172,23 @@ void run_performance_test(int threads_x, int threads_y, FILE* csv_file) {
     cudaEventCreate(&stop);
     
     float gpu_total_time = 0.0f;
+    // Create simple test scene matching CPU renderer
+    SphereData_Device* d_simple_spheres;
+    gpuErrchk(cudaMalloc(&d_simple_spheres, sizeof(SphereData_Device)));
+    
+    SphereData_Device simple_sphere;
+    simple_sphere.center = vec3_create(0, 0, -1);
+    simple_sphere.radius = 0.5f;
+    simple_sphere.material = material_lambertian_create_host(vec3_create(0.7f, 0.3f, 0.3f));
+    
+    gpuErrchk(cudaMemcpy(d_simple_spheres, &simple_sphere, sizeof(SphereData_Device), cudaMemcpyHostToDevice));
+    
     for (int i = 0; i < NUM_ITERATIONS; i++) {
         cudaEventRecord(start);
         
         render_kernel<<<grid_size, block_size>>>(d_framebuffer, TEST_WIDTH, TEST_HEIGHT, cam,
-                                                d_spheres_data, h_num_spheres,
-                                                d_cubes_data, h_num_cubes,
+                                                d_simple_spheres, 1,  // Use simple scene: 1 sphere
+                                                nullptr, 0,           // No cubes
                                                 d_rand_states);
         
         cudaEventRecord(stop);
@@ -187,6 +198,9 @@ void run_performance_test(int threads_x, int threads_y, FILE* csv_file) {
         cudaEventElapsedTime(&gpu_time, start, stop);
         gpu_total_time += gpu_time;
     }
+    
+    // Clean up simple scene data
+    cudaFree(d_simple_spheres);
     float avg_gpu_time = gpu_total_time / NUM_ITERATIONS;
     
     // Copy final result back to host
@@ -220,9 +234,7 @@ void run_performance_test(int threads_x, int threads_y, FILE* csv_file) {
     cudaFree(d_rand_states);
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
-}
-
-int main() {
+}int main() {
     printf("Ray Tracing Performance Analysis\n");
     printf("================================\n");
     printf("Image Resolution: %dx%d\n", TEST_WIDTH, TEST_HEIGHT);
@@ -233,7 +245,8 @@ int main() {
     size_t stack_size = 16384;
     gpuErrchk(cudaDeviceSetLimit(cudaLimitStackSize, stack_size));
     
-    init_engine_scene_and_gpu_data();
+    // We don't need to initialize the complex scene for this test
+    // The test function will create its own simple scene
     
     // Open CSV file for results
     FILE* csv_file = fopen("performance_analysis.csv", "w");
@@ -272,8 +285,6 @@ int main() {
     printf("- High speedup (>10x)\n");
     printf("- Low RMSE (<0.1)\n");
     printf("- High PSNR (>20 dB)\n");
-    
-    cleanup_gpu_data();
     
     return 0;
 }
